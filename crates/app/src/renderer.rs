@@ -11,13 +11,29 @@ impl Custom3d {
     pub fn new<'a>(cc: &'a eframe::CreationContext<'a>) -> Option<Self> {
         // Get the WGPU render state from the eframe creation context. This can also be retrieved
         // from `eframe::Frame` when you don't have a `CreationContext` available.
-        let wgpu_render_state = cc.wgpu_render_state.as_ref()?;
+        let render_state = cc.wgpu_render_state.as_ref()?;
 
-        let device = &wgpu_render_state.device;
+        let patnais = Self::create_screen_pipeline(&render_state);
 
+        // Because the graphics pipeline must have the same lifetime as the egui render pass,
+        // instead of storing the pipeline in our `Custom3D` struct, we insert it into the
+        // `paint_callback_resources` type map, which is stored alongside the render pass.
+        render_state
+            .renderer
+            .write()
+            .paint_callback_resources
+            .insert(patnais);
+
+        Some(Self { angle: 0.0 })
+    }
+
+    fn create_screen_pipeline(render_state: &egui_wgpu::RenderState) -> TriangleRenderResources {
+        let device = &render_state.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("custom3d"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("./custom3d_wgpu_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("./shaders/custom3d_wgpu_shader.wgsl").into(),
+            ),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -51,7 +67,7 @@ impl Custom3d {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
-                targets: &[Some(wgpu_render_state.target_format.into())],
+                targets: &[Some(render_state.target_format.into())],
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -76,20 +92,11 @@ impl Custom3d {
             }],
         });
 
-        // Because the graphics pipeline must have the same lifetime as the egui render pass,
-        // instead of storing the pipeline in our `Custom3D` struct, we insert it into the
-        // `paint_callback_resources` type map, which is stored alongside the render pass.
-        wgpu_render_state
-            .renderer
-            .write()
-            .paint_callback_resources
-            .insert(TriangleRenderResources {
-                pipeline,
-                bind_group,
-                uniform_buffer,
-            });
-
-        Some(Self { angle: 0.0 })
+        TriangleRenderResources {
+            pipeline,
+            bind_group,
+            uniform_buffer,
+        }
     }
 }
 
@@ -153,6 +160,7 @@ impl TriangleRenderResources {
     }
 
     fn paint<'rp>(&'rp self, render_pass: &mut wgpu::RenderPass<'rp>) {
+        // render_pass
         // Draw our triangle!
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);

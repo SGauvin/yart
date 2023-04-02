@@ -32,7 +32,7 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    re_log::setup_web_logging();
+    cc::setup_web_logging();
     // Make sure panics are logged using `console.error`.
     console_error_panic_hook::set_once();
 
