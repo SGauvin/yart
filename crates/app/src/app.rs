@@ -30,7 +30,10 @@ impl eframe::App for ExampleApp {
         egui::TopBottomPanel::bottom("bottom_panel").show(
             egui_ctx,
             |ui| {
-                ui.strong("Bottom panel");
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    egui::warn_if_debug_build(ui);
+                    ui.strong("Bottom panel");
+                })
             },
         );
 
