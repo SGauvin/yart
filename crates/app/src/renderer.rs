@@ -19,8 +19,8 @@ impl Custom3d {
         let render_state = cc.wgpu_render_state.as_ref()?;
         let device = &render_state.device;
 
-        let texture_width = 300;
-        let texture_height = 300;
+        let texture_width = 800;
+        let texture_height = 800;
 
         let raytracing_resources =
             Self::create_raytracing_pipeline(device, texture_width, texture_height);
@@ -33,6 +33,7 @@ impl Custom3d {
             raytracing_resources,
             triangle_resources,
         };
+
         // Because the graphics pipeline must have the same lifetime as the egui render pass,
         // instead of storing the pipeline in our `Custom3D` struct, we insert it into the
         // `paint_callback_resources` type map, which is stored alongside the render pass.

@@ -12,19 +12,6 @@ impl ExampleApp {
             custom: Custom3d::new(cc).expect("Failed to vreate custom 3D renderer"),
         }
     }
-
-    fn get_window_size(frame: &eframe::Frame) -> Vec2 {
-        #[cfg(target_arch = "wasm32")]
-        {
-            frame.info().web_info.size
-    
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            frame.info().window_info.size
-        }
-    }
-
 }
 
 impl eframe::App for ExampleApp {
