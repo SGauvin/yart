@@ -1,13 +1,10 @@
 use std::borrow::Cow;
 use std::num::NonZeroU8;
-use std::{num::NonZeroU64, sync::Arc};
+use std::sync::Arc;
 
-use egui_wgpu::wgpu::util::DeviceExt;
 use egui_wgpu::{self, wgpu};
 
-pub struct Custom3d {
-    angle: f32,
-}
+pub struct Custom3d {}
 
 impl Custom3d {
     pub fn new<'a>(cc: &'a eframe::CreationContext<'a>) -> Option<Self> {
@@ -16,7 +13,11 @@ impl Custom3d {
         let render_state = cc.wgpu_render_state.as_ref()?;
 
         let raytracing_resources = Self::create_raytracing_pipeline(render_state);
-        let triangle_resources = Self::create_screen_pipeline(render_state);
+        let triangle_resources = Self::create_screen_pipeline(
+            render_state,
+            &raytracing_resources.sampler,
+            &raytracing_resources.color_buffer_view,
+        );
         let resources = Resources {
             raytracing_resources,
             triangle_resources,
@@ -30,7 +31,7 @@ impl Custom3d {
             .paint_callback_resources
             .insert(resources);
 
-        Some(Self { angle: 0.0 })
+        Some(Self {})
     }
 
     fn create_raytracing_pipeline(
@@ -50,7 +51,8 @@ impl Custom3d {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             label: None,
             view_formats: &[],
         };
@@ -60,11 +62,10 @@ impl Custom3d {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
+            // mag_filter: wgpu::FilterMode::Linear,
+            // min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            anisotropy_clamp: std::num::NonZeroU8::new(1),
+            anisotropy_clamp: NonZeroU8::new(1),
             ..Default::default()
         });
 
@@ -114,78 +115,100 @@ impl Custom3d {
             bind_group,
             pipeline,
             sampler,
+            color_buffer_view,
         }
     }
 
-    fn create_screen_pipeline(render_state: &egui_wgpu::RenderState) -> TriangleRenderResources {
+    fn create_screen_pipeline(
+        render_state: &egui_wgpu::RenderState,
+        sampler: &wgpu::Sampler,
+        color_buffer_view: &wgpu::TextureView,
+    ) -> ScreenRenderResources {
         let device = &render_state.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("custom3d"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("./shaders/custom3d_wgpu_shader.wgsl").into(),
-            ),
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/screen_shader.wgsl").into()),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("custom3d"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(16),
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
                 },
-                count: None,
-            }],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("custom3d"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("custom3d"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(render_state.target_format.into())],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("custom3d"),
-            contents: bytemuck::cast_slice(&[0.0_f32; 4]), // 16 bytes aligned!
-            // Mapping at creation (as done by the create_buffer_init utility) doesn't require us to to add the MAP_WRITE usage
-            // (this *happens* to workaround this bug )
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("custom3d"),
+            label: None,
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(color_buffer_view),
+                },
+            ],
         });
 
-        TriangleRenderResources {
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            ..Default::default()
+        });
+
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                "./shaders/screen_shader.wgsl"
+            ))),
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_module,
+                entry_point: "vert_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_module,
+                entry_point: "frag_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::default(),
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview: None,
+        });
+
+        ScreenRenderResources {
             pipeline,
             bind_group,
-            uniform_buffer,
         }
     }
 }
@@ -194,11 +217,6 @@ impl Custom3d {
     pub fn custom_painting(&mut self, ui: &mut egui::Ui) {
         let (rect, response) =
             ui.allocate_exact_size(egui::Vec2::splat(300.0), egui::Sense::drag());
-
-        self.angle += response.drag_delta().x * 0.01;
-
-        // Clone locals so we can move them into the paint callback:
-        let angle = self.angle;
 
         // The callback function for WGPU is in two stages: prepare, and paint.
         //
@@ -216,7 +234,7 @@ impl Custom3d {
         let cb = egui_wgpu::CallbackFn::new()
             .prepare(move |device, queue, _encoder, paint_callback_resources| {
                 let resources: &Resources = paint_callback_resources.get().unwrap();
-                resources.prepare(device, queue, angle);
+                resources.prepare(device, queue);
                 Vec::new()
             })
             .paint(move |_info, render_pass, paint_callback_resources| {
@@ -233,26 +251,26 @@ impl Custom3d {
     }
 }
 
-struct TriangleRenderResources {
+struct ScreenRenderResources {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
 }
 
 struct RaytracingRenderResources {
     pipeline: wgpu::ComputePipeline,
     sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
+    color_buffer_view: wgpu::TextureView,
 }
 
 struct Resources {
     raytracing_resources: RaytracingRenderResources,
-    triangle_resources: TriangleRenderResources,
+    triangle_resources: ScreenRenderResources,
 }
 
 impl Resources {
-    fn prepare(&self, device: &wgpu::Device, queue: &wgpu::Queue, angle: f32) {
-        self.triangle_resources.prepare(device, queue, angle);
+    fn prepare(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.triangle_resources.prepare(device, queue);
     }
 
     fn paint<'rp>(&'rp self, render_pass: &mut wgpu::RenderPass<'rp>) {
@@ -260,19 +278,17 @@ impl Resources {
     }
 }
 
-impl TriangleRenderResources {
-    fn prepare(&self, _device: &wgpu::Device, queue: &wgpu::Queue, angle: f32) {
+impl ScreenRenderResources {
+    fn prepare(&self, _device: &wgpu::Device, _queue: &wgpu::Queue) {
         // Update our uniform buffer with the angle from the UI
-        queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[angle, 0.0, 0.0, 0.0]),
-        );
+        // queue.write_buffer(
+        //     &self.uniform_buffer,
+        //     0,
+        //     bytemuck::cast_slice(&[angle, 0.0, 0.0, 0.0]),
+        // );
     }
 
     fn paint<'rp>(&'rp self, render_pass: &mut wgpu::RenderPass<'rp>) {
-        // render_pass
-        // Draw our triangle!
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
