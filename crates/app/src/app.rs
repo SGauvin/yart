@@ -67,7 +67,7 @@ impl eframe::App for ExampleApp {
 
         let panel_frame = egui::Frame {
             fill: egui_ctx.style().visuals.panel_fill,
-            inner_margin: re_ui::ReUi::view_padding().into(),
+            inner_margin: 12.0.into(),
             ..Default::default()
         };
 
@@ -91,21 +91,10 @@ impl eframe::App for ExampleApp {
 }
 
 impl ExampleApp {
-    fn top_bar(&mut self, egui_ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let fullscreen = {
-            #[cfg(target_arch = "wasm32")]
-            {
-                false
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                frame.info().window_info.fullscreen
-            }
-        };
-
+    fn top_bar(&mut self, egui_ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let frame = egui::Frame {
             fill: egui_ctx.style().visuals.panel_fill,
-            inner_margin: re_ui::ReUi::view_padding().into(),
+            inner_margin: 12.0.into(),
             ..Default::default()
         };
 

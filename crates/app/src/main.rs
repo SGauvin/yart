@@ -9,15 +9,6 @@ fn main() -> eframe::Result<()> {
         initial_window_size: Some([1200.0, 800.0].into()),
         follow_system_theme: false,
         default_theme: eframe::Theme::Dark,
-
-        #[cfg(target_os = "macos")]
-        fullsize_content: re_ui::FULLSIZE_CONTENT,
-
-        // Maybe hide the OS-specific "chrome" around the window:
-        decorated: !re_ui::CUSTOM_WINDOW_DECORATIONS,
-        // To have rounded corners we need transparency:
-        transparent: re_ui::CUSTOM_WINDOW_DECORATIONS,
-
         ..Default::default()
     };
 
@@ -32,7 +23,7 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    cc::setup_web_logging();
+    re_log::setup_web_logging();
     // Make sure panics are logged using `console.error`.
     console_error_panic_hook::set_once();
 
