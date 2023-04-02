@@ -1,3 +1,5 @@
+use egui::Vec2;
+
 use crate::renderer::Custom3d;
 
 pub struct ExampleApp {
@@ -10,6 +12,19 @@ impl ExampleApp {
             custom: Custom3d::new(cc).expect("Failed to vreate custom 3D renderer"),
         }
     }
+
+    fn get_window_size(frame: &eframe::Frame) -> Vec2 {
+        #[cfg(target_arch = "wasm32")]
+        {
+            frame.info().web_info.size
+    
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            frame.info().window_info.size
+        }
+    }
+
 }
 
 impl eframe::App for ExampleApp {
@@ -70,6 +85,7 @@ impl eframe::App for ExampleApp {
         };
 
         egui::SidePanel::right("right_panel")
+            .min_width(100.0)
             .frame(panel_frame)
             .show(egui_ctx, |ui| {
                 ui.strong("Right panel");

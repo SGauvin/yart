@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::num::NonZeroU8;
 use std::sync::Arc;
 
+use egui::Vec2;
 use egui_wgpu::{self, wgpu};
 
 pub struct Custom3d {
@@ -16,14 +17,15 @@ impl Custom3d {
         // Get the WGPU render state from the eframe creation context. This can also be retrieved
         // from `eframe::Frame` when you don't have a `CreationContext` available.
         let render_state = cc.wgpu_render_state.as_ref()?;
+        let device = &render_state.device;
 
         let texture_width = 300;
         let texture_height = 300;
 
         let raytracing_resources =
-            Self::create_raytracing_pipeline(render_state, texture_width, texture_height);
+            Self::create_raytracing_pipeline(device, texture_width, texture_height);
         let triangle_resources = Self::create_screen_pipeline(
-            render_state,
+            device,
             &raytracing_resources.sampler,
             &raytracing_resources.color_buffer_view,
         );
@@ -49,12 +51,10 @@ impl Custom3d {
     }
 
     fn create_raytracing_pipeline(
-        render_state: &egui_wgpu::RenderState,
+        device: &wgpu::Device,
         texture_width: u32,
         texture_height: u32,
     ) -> RaytracingRenderResources {
-        let device = &render_state.device;
-
         let texture_descriptor =
             Self::get_texture_descriptor_from_size(texture_width, texture_height);
         let color_buffer = device.create_texture(&texture_descriptor);
@@ -119,12 +119,10 @@ impl Custom3d {
     }
 
     fn create_screen_pipeline(
-        render_state: &egui_wgpu::RenderState,
+        device: &wgpu::Device,
         sampler: &wgpu::Sampler,
         color_buffer_view: &wgpu::TextureView,
     ) -> ScreenRenderResources {
-        let device = &render_state.device;
-
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -231,10 +229,27 @@ impl Custom3d {
     }
 
     pub fn custom_painting(&mut self, ui: &mut egui::Ui) {
-        let (rect, _response) = ui.allocate_exact_size(
-            egui::Vec2::new(self.viewport_width as f32, self.viewport_height as f32),
-            egui::Sense::drag(),
-        );
+        let size_to_allocate = {
+            let available_size = ui.available_size();
+            let texture_aspect_ratio = (self.texture_width as f32) / (self.texture_height as f32);
+
+            let fit_to_x_size =
+                Vec2::new(available_size.x, available_size.x / texture_aspect_ratio);
+            let fit_to_y_size =
+                Vec2::new(available_size.y * texture_aspect_ratio, available_size.y);
+
+            if fit_to_x_size.y > available_size.y {
+                fit_to_y_size
+            } else {
+                fit_to_x_size
+            }
+        };
+
+        if size_to_allocate.x < 1.0 || size_to_allocate.y < 1.0 {
+            return;
+        }
+
+        let (rect, _response) = ui.allocate_exact_size(size_to_allocate, egui::Sense::drag());
 
         let cb = egui_wgpu::CallbackFn::new()
             .prepare({
