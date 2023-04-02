@@ -35,5 +35,6 @@ fn vert_main(@builtin(vertex_index) VertexIndex : u32) -> VertexOutput {
 
 @fragment
 fn frag_main(@location(0) TexCoord : vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(color_buffer, screen_sampler, TexCoord);
+    let col: vec4<f32> = textureSample(color_buffer, screen_sampler, TexCoord);
+    return col;
 }
