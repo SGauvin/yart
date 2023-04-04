@@ -1,5 +1,3 @@
-@group(0) @binding(0) var color_buffer: texture_storage_2d<rgba8unorm, write>;
-
 struct Sphere {
     center: vec3<f32>,
     radius: f32,
@@ -9,6 +7,20 @@ struct Ray {
     direction: vec3<f32>,
     origin: vec3<f32>,
 }
+
+struct Camera {
+    position: vec3<f32>,
+}
+
+struct SceneInfo {
+    camera: Camera,
+}
+
+@group(0) @binding(0)
+var color_buffer: texture_storage_2d<rgba8unorm, write>;
+
+@group(0) @binding(1)
+var<uniform> scene_info: SceneInfo;
 
 @compute @workgroup_size(1,1,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
@@ -28,7 +40,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     var myRay: Ray;
     myRay.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
-    myRay.origin = vec3<f32>(0.0, 0.0, 0.0);
+    myRay.origin = scene_info.camera.position;
 
     var pixel_color : vec3<f32> = vec3<f32>(0.5, 0.0, 0.25);
 

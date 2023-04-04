@@ -1,5 +1,3 @@
-use egui::Vec2;
-
 use crate::renderer::Custom3d;
 
 pub struct ExampleApp {
@@ -88,7 +86,7 @@ impl eframe::App for ExampleApp {
                 ..Default::default()
             })
             .show(egui_ctx, |ui| {
-                self.custom.custom_painting(ui);
+                self.custom.custom_painting(ui, frame);
             });
     }
 }

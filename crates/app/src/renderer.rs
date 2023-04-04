@@ -1,15 +1,45 @@
-use std::borrow::Cow;
 use std::num::NonZeroU8;
 use std::sync::Arc;
+use std::borrow::Cow;
 
-use egui::Vec2;
 use egui_wgpu::{self, wgpu};
 
+use bytemuck::{Pod, Zeroable};
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
+pub struct Vec2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
+pub struct Vec3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
+pub struct Camera {
+    pub position: Vec3,
+    unused_buffer: [u32; 1],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
+pub struct SceneInfo {
+    pub camera: Camera,
+}
+
 pub struct Custom3d {
-    viewport_width: u32,
-    viewport_height: u32,
     texture_width: u32,
     texture_height: u32,
+    device: Arc<wgpu::Device>,
+    scene_info: SceneInfo,
 }
 
 impl Custom3d {
@@ -44,11 +74,41 @@ impl Custom3d {
             .insert(resources);
 
         Some(Self {
-            viewport_width: 300,
-            viewport_height: 300,
             texture_width,
             texture_height,
+            device: device.clone(),
+            scene_info: Default::default(),
         })
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32, render_state: &egui_wgpu::RenderState) {
+        let raytracing_resources = Self::create_raytracing_pipeline(&self.device, width, height);
+
+        let triangle_resources = Self::create_screen_pipeline(
+            &self.device,
+            &raytracing_resources.sampler,
+            &raytracing_resources.color_buffer_view,
+        );
+
+        let resources = Resources {
+            raytracing_resources,
+            triangle_resources,
+        };
+
+        render_state
+            .renderer
+            .write()
+            .paint_callback_resources
+            .remove::<Resources>();
+
+        render_state
+            .renderer
+            .write()
+            .paint_callback_resources
+            .insert(resources);
+
+        self.texture_width = width;
+        self.texture_height = height;
     }
 
     fn create_raytracing_pipeline(
@@ -56,40 +116,62 @@ impl Custom3d {
         texture_width: u32,
         texture_height: u32,
     ) -> RaytracingRenderResources {
+        let scene_info_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[SceneInfo::default()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let texture_descriptor =
             Self::get_texture_descriptor_from_size(texture_width, texture_height);
         let color_buffer = device.create_texture(&texture_descriptor);
         let color_buffer_view = color_buffer.create_view(&wgpu::TextureViewDescriptor::default());
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
             mipmap_filter: wgpu::FilterMode::Nearest,
             anisotropy_clamp: NonZeroU8::new(1),
             ..Default::default()
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    view_dimension: wgpu::TextureViewDimension::D2,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
             label: None,
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             label: None,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&color_buffer_view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&color_buffer_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: scene_info_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -116,6 +198,7 @@ impl Custom3d {
             pipeline,
             sampler,
             color_buffer_view,
+            scene_info_buffer,
         }
     }
 
@@ -229,15 +312,15 @@ impl Custom3d {
         }
     }
 
-    pub fn custom_painting(&mut self, ui: &mut egui::Ui) {
+    pub fn custom_painting(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let size_to_allocate = {
             let available_size = ui.available_size();
             let texture_aspect_ratio = (self.texture_width as f32) / (self.texture_height as f32);
 
             let fit_to_x_size =
-                Vec2::new(available_size.x, available_size.x / texture_aspect_ratio);
+                egui::Vec2::new(available_size.x, available_size.x / texture_aspect_ratio);
             let fit_to_y_size =
-                Vec2::new(available_size.y * texture_aspect_ratio, available_size.y);
+                egui::Vec2::new(available_size.y * texture_aspect_ratio, available_size.y);
 
             if fit_to_x_size.y > available_size.y {
                 fit_to_y_size
@@ -250,15 +333,33 @@ impl Custom3d {
             return;
         }
 
+        if size_to_allocate.x as u32 != self.texture_width
+            || size_to_allocate.y as u32 != self.texture_height
+        {
+            self.resize(
+                size_to_allocate.x as u32,
+                size_to_allocate.y as u32,
+                frame.wgpu_render_state().unwrap(),
+            );
+        }
+
         let (rect, _response) = ui.allocate_exact_size(size_to_allocate, egui::Sense::drag());
 
         let cb = egui_wgpu::CallbackFn::new()
             .prepare({
                 let texture_width = self.texture_width;
                 let texture_height = self.texture_height;
+                let scene_info = self.scene_info;
                 move |device, queue, encoder, paint_callback_resources| {
                     let resources: &Resources = paint_callback_resources.get().unwrap();
-                    resources.prepare(device, queue, encoder, texture_width, texture_height);
+                    resources.prepare(
+                        device,
+                        queue,
+                        encoder,
+                        texture_width,
+                        texture_height,
+                        scene_info,
+                    );
                     Vec::new()
                 }
             })
@@ -286,6 +387,7 @@ struct RaytracingRenderResources {
     sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
     color_buffer_view: wgpu::TextureView,
+    scene_info_buffer: wgpu::Buffer,
 }
 
 struct Resources {
@@ -301,9 +403,16 @@ impl Resources {
         encoder: &mut wgpu::CommandEncoder,
         texture_width: u32,
         texture_height: u32,
+        scene_info: SceneInfo,
     ) {
-        self.raytracing_resources
-            .prepare(device, queue, encoder, texture_width, texture_height);
+        self.raytracing_resources.prepare(
+            device,
+            queue,
+            encoder,
+            texture_width,
+            texture_height,
+            scene_info,
+        );
     }
 
     fn paint<'rp>(&'rp self, render_pass: &mut wgpu::RenderPass<'rp>) {
@@ -315,12 +424,18 @@ impl RaytracingRenderResources {
     fn prepare(
         &self,
         _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         texture_width: u32,
         texture_height: u32,
+        scene_info: SceneInfo,
     ) {
         let mut raytracing_pass = encoder.begin_compute_pass(&Default::default());
+        queue.write_buffer(
+            &self.scene_info_buffer,
+            0,
+            bytemuck::cast_slice(&[scene_info]),
+        );
         raytracing_pass.set_pipeline(&self.pipeline);
         raytracing_pass.set_bind_group(0, &self.bind_group, &[]);
         raytracing_pass.dispatch_workgroups(texture_width, texture_height, 1);
