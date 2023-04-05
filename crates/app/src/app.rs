@@ -18,6 +18,7 @@ impl eframe::App for ExampleApp {
     }
 
     fn update(&mut self, egui_ctx: &egui::Context, frame: &mut eframe::Frame) {
+        egui_ctx.request_repaint();
         egui::gui_zoom::zoom_with_keyboard_shortcuts(
             egui_ctx,
             frame.info().native_pixels_per_point,

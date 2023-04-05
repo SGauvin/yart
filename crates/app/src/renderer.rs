@@ -1,6 +1,6 @@
+use std::borrow::Cow;
 use std::num::NonZeroU8;
 use std::sync::Arc;
-use std::borrow::Cow;
 
 use egui_wgpu::{self, wgpu};
 
@@ -24,6 +24,13 @@ pub struct Vec3 {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
+pub struct Sphere {
+    pub position: Vec3,
+    pub radius: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
 pub struct Camera {
     pub position: Vec3,
     unused_buffer: [u32; 1],
@@ -33,9 +40,12 @@ pub struct Camera {
 #[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
 pub struct SceneInfo {
     pub camera: Camera,
+    pub time: f32,
+    unused_buffer: [u32; 3],
 }
 
 pub struct Custom3d {
+    scene_start: std::time::Instant,
     texture_width: u32,
     texture_height: u32,
     device: Arc<wgpu::Device>,
@@ -74,6 +84,7 @@ impl Custom3d {
             .insert(resources);
 
         Some(Self {
+            scene_start: std::time::Instant::now(),
             texture_width,
             texture_height,
             device: device.clone(),
@@ -122,6 +133,13 @@ impl Custom3d {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let sphere_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: std::mem::size_of::<Sphere>() as u64 * 16,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let texture_descriptor =
             Self::get_texture_descriptor_from_size(texture_width, texture_height);
         let color_buffer = device.create_texture(&texture_descriptor);
@@ -155,6 +173,16 @@ impl Custom3d {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
             label: None,
         });
@@ -170,6 +198,10 @@ impl Custom3d {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: scene_info_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: sphere_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -199,6 +231,7 @@ impl Custom3d {
             sampler,
             color_buffer_view,
             scene_info_buffer,
+            sphere_buffer,
         }
     }
 
@@ -345,6 +378,8 @@ impl Custom3d {
 
         let (rect, _response) = ui.allocate_exact_size(size_to_allocate, egui::Sense::drag());
 
+        self.scene_info.time = self.scene_start.elapsed().as_secs_f32();
+        
         let cb = egui_wgpu::CallbackFn::new()
             .prepare({
                 let texture_width = self.texture_width;
@@ -388,6 +423,7 @@ struct RaytracingRenderResources {
     bind_group: wgpu::BindGroup,
     color_buffer_view: wgpu::TextureView,
     scene_info_buffer: wgpu::Buffer,
+    sphere_buffer: wgpu::Buffer,
 }
 
 struct Resources {
@@ -405,13 +441,51 @@ impl Resources {
         texture_height: u32,
         scene_info: SceneInfo,
     ) {
+        let angle = scene_info.time;
+        let x = angle.sin();
+        let y = angle.cos();
+        let spheres = [
+            Sphere {
+                position: Vec3 {
+                    x: 10.0,
+                    y: y * 8.0,
+                    z: x * 4.0,
+                },
+                radius: 1.0,
+            },
+            Sphere {
+                position: Vec3 {
+                    x: 10.0,
+                    y: x * 3.0 + 3.0,
+                    z: 0.0,
+                },
+                radius: 1.0,
+            },
+            Sphere {
+                position: Vec3 {
+                    x: 12.0,
+                    y: -4.0,
+                    z: 0.0,
+                },
+                radius: 1.0,
+            },
+            Sphere {
+                position: Vec3 {
+                    x: 15.0 + 5.0 * x,
+                    y: -1.0 + 5.0 * y,
+                    z: 6.0,
+                },
+                radius: 1.0,
+            },
+        ];
+
         self.raytracing_resources.prepare(
             device,
             queue,
             encoder,
-            texture_width,
-            texture_height,
+            (texture_width, texture_height),
             scene_info,
+            spheres,
         );
     }
 
@@ -426,9 +500,9 @@ impl RaytracingRenderResources {
         _device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        texture_width: u32,
-        texture_height: u32,
+        texture_size: (u32, u32),
         scene_info: SceneInfo,
+        spheres: [Sphere; 4],
     ) {
         let mut raytracing_pass = encoder.begin_compute_pass(&Default::default());
         queue.write_buffer(
@@ -436,9 +510,10 @@ impl RaytracingRenderResources {
             0,
             bytemuck::cast_slice(&[scene_info]),
         );
+        queue.write_buffer(&self.sphere_buffer, 0, bytemuck::cast_slice(&[spheres]));
         raytracing_pass.set_pipeline(&self.pipeline);
         raytracing_pass.set_bind_group(0, &self.bind_group, &[]);
-        raytracing_pass.dispatch_workgroups(texture_width, texture_height, 1);
+        raytracing_pass.dispatch_workgroups(texture_size.0, texture_size.1, 1);
     }
 }
 
