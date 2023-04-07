@@ -45,11 +45,11 @@ var<private> seed: vec2<f32>;
 
 @compute @workgroup_size(1,1,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-
     let screen_size: vec2<i32> = textureDimensions(color_buffer);
     let screen_pos : vec2<i32> = vec2<i32>(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
 
     seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
+
     var average_color = vec3<f32>(0.0, 0.0, 0.0);
     let sample_count = 50;
     for (var i = 0; i < sample_count; i++) {
@@ -83,11 +83,7 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
     for (var i = 0; i < max_bounces; i++) {
         var hit_result = hit_any(ray);
         if (hit_result.t > 0.0001) {
-            ray.origin = hit_result.point;
-            let ray_target = ray.origin + hit_result.normal + random_on_unit_sphere();
-            ray.direction = normalize(ray_target - ray.origin);
-            let albedo = spheres[hit_result.sphere_index].material.albedo;
-            pixel_color *= 0.5 * albedo;
+            scatter(&ray, &pixel_color, hit_result);
         }
         else {
             // Skybox
@@ -98,6 +94,14 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
         }
     }
     return pixel_color;
+}
+
+fn scatter(ray: ptr<function, Ray>, color: ptr<function, vec3<f32>>, hit_result: HitResult) {
+    (*ray).origin = hit_result.point;
+    let ray_target = (*ray).origin + hit_result.normal + random_on_unit_sphere();
+    (*ray).direction = normalize(ray_target - (*ray).origin);
+    let albedo = spheres[hit_result.sphere_index].material.albedo;
+    *color *= 0.5 * albedo;
 }
 
 fn hit_any(ray: Ray) -> HitResult {
@@ -133,6 +137,11 @@ fn hit(ray: Ray, sphere: Sphere) -> f32 {
     } else {
         return (-half_b - sqrt(discriminant) ) / a;
     }
+}
+
+fn near_zero(vec: vec3<f32>) -> bool {
+    let s = 1e-7;
+    return abs(vec.x) < s && abs(vec.y) < s && abs(vec.z) < s;
 }
 
 fn random() -> f32 {
