@@ -457,6 +457,23 @@ impl Resources {
         mut scene_info: SceneInfo,
     ) {
         let spheres = [
+            // Sphere {
+            //     position: Vec3 {
+            //         x: 10.0,
+            //         y: 1.0,
+            //         z: 1.0,
+            //     },
+            //     radius: 1.0,
+            //     mat: Material {
+            //         albedo: Vec3 {
+            //             x: 0.7,
+            //             y: 0.7,
+            //             z: 0.7,
+            //         },
+            //         is_mirror: 1,
+            //         unused_buffer: Default::default(),
+            //     },
+            // },
             Sphere {
                 position: Vec3 {
                     x: 10.0,
@@ -478,87 +495,87 @@ impl Resources {
                 position: Vec3 {
                     x: 10.0,
                     y: 0.0,
-                    z: 100_002.0,
+                    z: 102.0,
                 },
-                radius: 100_000.0,
-                mat: Material {
-                    albedo: Vec3 {
-                        x: 0.7,
-                        y: 0.7,
-                        z: 0.7,
-                    },
-                    is_mirror: 0,
-                    unused_buffer: Default::default(),
-                },
-            },
-            Sphere {
-                position: Vec3 {
-                    x: 10.0,
-                    y: 100_004.0,
-                    z: 0.0,
-                },
-                radius: 100_000.0,
-                mat: Material {
-                    albedo: Vec3 {
-                        x: 0.7,
-                        y: 0.7,
-                        z: 1.0,
-                    },
-                    is_mirror: 0,
-                    unused_buffer: Default::default(),
-                },
-            },
-            Sphere {
-                position: Vec3 {
-                    x: 10.0,
-                    y: -100_004.0,
-                    z: 0.0,
-                },
-                radius: 100_000.0,
+                radius: 100.0,
                 mat: Material {
                     albedo: Vec3 {
                         x: 1.0,
-                        y: 0.7,
-                        z: 0.7,
+                        y: 0.5,
+                        z: 0.5,
                     },
                     is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },
-            Sphere {
-                position: Vec3 {
-                    x: 100_014.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
-                radius: 100_000.0,
-                mat: Material {
-                    albedo: Vec3 {
-                        x: 0.7,
-                        y: 0.7,
-                        z: 0.7,
-                    },
-                    is_mirror: 0,
-                    unused_buffer: Default::default(),
-                },
-            },
-            Sphere {
-                position: Vec3 {
-                    x: 10.0,
-                    y: 0.0,
-                    z: -100_004.0,
-                },
-                radius: 100_000.0,
-                mat: Material {
-                    albedo: Vec3 {
-                        x: 0.2,
-                        y: 0.2,
-                        z: 0.2,
-                    },
-                    is_mirror: 0,
-                    unused_buffer: Default::default(),
-                },
-            },
+            // Sphere {
+            //     position: Vec3 {
+            //         x: 10.0,
+            //         y: 100_004.0,
+            //         z: 0.0,
+            //     },
+            //     radius: 100_000.0,
+            //     mat: Material {
+            //         albedo: Vec3 {
+            //             x: 0.7,
+            //             y: 0.7,
+            //             z: 1.0,
+            //         },
+            //         is_mirror: 0,
+            //         unused_buffer: Default::default(),
+            //     },
+            // },
+            // Sphere {
+            //     position: Vec3 {
+            //         x: 10.0,
+            //         y: -100_004.0,
+            //         z: 0.0,
+            //     },
+            //     radius: 100_000.0,
+            //     mat: Material {
+            //         albedo: Vec3 {
+            //             x: 1.0,
+            //             y: 0.7,
+            //             z: 0.7,
+            //         },
+            //         is_mirror: 0,
+            //         unused_buffer: Default::default(),
+            //     },
+            // },
+            // Sphere {
+            //     position: Vec3 {
+            //         x: 100_014.0,
+            //         y: 0.0,
+            //         z: 0.0,
+            //     },
+            //     radius: 100_000.0,
+            //     mat: Material {
+            //         albedo: Vec3 {
+            //             x: 0.7,
+            //             y: 0.7,
+            //             z: 0.7,
+            //         },
+            //         is_mirror: 0,
+            //         unused_buffer: Default::default(),
+            //     },
+            // },
+            // Sphere {
+            //     position: Vec3 {
+            //         x: 10.0,
+            //         y: 0.0,
+            //         z: -100_004.0,
+            //     },
+            //     radius: 100_000.0,
+            //     mat: Material {
+            //         albedo: Vec3 {
+            //             x: 0.2,
+            //             y: 0.2,
+            //             z: 0.2,
+            //         },
+            //         is_mirror: 0,
+            //         unused_buffer: Default::default(),
+            //     },
+            // },
         ];
 
         scene_info.sphere_count = spheres.len() as u32;

@@ -49,7 +49,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     var seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
     var average_color = vec3<f32>(0.0, 0.0, 0.0);
-    let sample_count = 10;
+    let sample_count = 50;
     for (var i = 0; i < sample_count; i++) {
         let pixel_color = sample(screen_pos, screen_size, seed);
         average_color += pixel_color / f32(sample_count);
@@ -59,7 +59,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 }
 
 fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>, seed: vec2<f32>) -> vec3<f32> {
-    let light_pos = vec3<f32>(10.0, 1.3, -2.0);
+    /* let light_pos = vec3<f32>(10.0, 1.3, -2.0); */
     let forwards = vec3<f32>(1.0, 0.0, 0.0);
     let right = vec3<f32>(0.0, -1.0, 0.0);
     let up = vec3<f32>(0.0, 0.0, 1.0);
@@ -71,45 +71,30 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>, seed: vec2<f32>) -> vec
     let vertical_coefficient: f32 = (f32(screen_pos.y) + rand_y - f32(screen_size.y) / 2.0) / f32(screen_size.x);
 
 
-    var pixel_color = vec3<f32>(3.0, 3.0, 3.0);
+    var pixel_color = vec3<f32>(1.0, 1.0, 1.0);
 
     let max_bounces = 50;
 
     var ray: Ray;
     ray.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
     ray.origin = scene_info.camera.position;
+    var seed_offset = seed + 0.17;
 
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < max_bounces; i++) {
+        seed_offset += 0.17;
         var hit_result = hit_any(ray);
         if (hit_result.t > 0.0001) {
-            // Pixel hit an object
-            let hit_pos = hit_result.point;
-            let normal = hit_result.normal;
-
-            var new_ray: Ray;
-            new_ray.origin = hit_pos;
-            let hit_to_light_vec = light_pos - hit_pos;
-            new_ray.direction = normalize(hit_to_light_vec);
-            let new_hit_result = hit_any(new_ray);
-
-            if (new_hit_result.t < 0.0 || new_hit_result.t * new_hit_result.t > dot(hit_to_light_vec, hit_to_light_vec)) {
-                // Not in shadow
-                let albedo = spheres[hit_result.sphere_index].material.albedo;
-                let light_intensity = dot(normal, new_ray.direction);
-                pixel_color *= albedo * light_intensity;
-                let ray_target = hit_pos + normal + vec3<f32>(random(seed + 0.11), random(seed + 0.12), random(seed + 0.13));
-                ray.origin = hit_pos;
-                ray.direction = normalize(ray_target - ray.origin);
-            }
-            else {
-                // Shadow
-                pixel_color *= 0.0;
-                break;
-            }
+            ray.origin = hit_result.point;
+            let ray_target = ray.origin + hit_result.normal + random_on_unit_sphere(seed_offset);
+            ray.direction = normalize(ray_target - ray.origin);
+            let albedo = spheres[hit_result.sphere_index].material.albedo;
+            pixel_color *= 0.5 * albedo;
         }
         else {
             // Skybox
-            pixel_color *= vec3<f32>(0.2, 0.4, 0.95);
+            let t = 0.5 * (ray.direction.z + 1.0);
+            let skybox_color = (1.0 - t) * vec3<f32>(1.0, 1.0, 1.0) + t * vec3<f32>(0.5, 0.7, 1.0);
+            pixel_color *= skybox_color;
             break;
         }
     }
@@ -154,3 +139,26 @@ fn hit(ray: Ray, sphere: Sphere) -> f32 {
 fn random(co: vec2<f32>) -> f32 {
     return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453);
 }
+
+fn random_in_unit_sphere(co: vec2<f32>) -> vec3<f32> {
+    var seed = co;
+    while (true) {
+        seed += 0.13;
+        let x = (random(seed) * 2.0) - 1.0;
+        seed += 0.17;
+        let y = (random(seed) * 2.0) - 1.0;
+        seed += 0.12;
+        let z = (random(seed) * 2.0) - 1.0;
+        let value = vec3<f32>(x, y, z);
+        if (dot(value, value) > 1.0) {
+            continue;
+        }
+        return value;
+    }
+    return vec3<f32>(0.0, 0.0, 0.0);
+}
+
+fn random_on_unit_sphere(co: vec2<f32>) -> vec3<f32> {
+    return normalize(random_in_unit_sphere(co));
+}
+
