@@ -24,9 +24,17 @@ pub struct Vec3 {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
+pub struct Material {
+    pub albedo: Vec3,
+    unused_buffer: [u32; 1],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
 pub struct Sphere {
     pub position: Vec3,
     pub radius: f32,
+    pub mat: Material,
 }
 
 #[repr(C)]
@@ -41,7 +49,8 @@ pub struct Camera {
 pub struct SceneInfo {
     pub camera: Camera,
     pub time: f32,
-    unused_buffer: [u32; 3],
+    pub sphere_count: u32,
+    unused_buffer: [u32; 2],
 }
 
 pub struct Custom3d {
@@ -379,7 +388,7 @@ impl Custom3d {
         let (rect, _response) = ui.allocate_exact_size(size_to_allocate, egui::Sense::drag());
 
         self.scene_info.time = self.scene_start.elapsed().as_secs_f32();
-        
+
         let cb = egui_wgpu::CallbackFn::new()
             .prepare({
                 let texture_width = self.texture_width;
@@ -439,45 +448,109 @@ impl Resources {
         encoder: &mut wgpu::CommandEncoder,
         texture_width: u32,
         texture_height: u32,
-        scene_info: SceneInfo,
+        mut scene_info: SceneInfo,
     ) {
-        let angle = scene_info.time;
-        let x = angle.sin();
-        let y = angle.cos();
         let spheres = [
             Sphere {
                 position: Vec3 {
                     x: 10.0,
-                    y: y * 8.0,
-                    z: x * 4.0,
+                    y: 0.0,
+                    z: 1.0,
                 },
                 radius: 1.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.7,
+                        y: 0.7,
+                        z: 0.7,
+                    },
+                    unused_buffer: Default::default(),
+                },
             },
             Sphere {
                 position: Vec3 {
                     x: 10.0,
-                    y: x * 3.0 + 3.0,
-                    z: 0.0,
+                    y: 0.0,
+                    z: 100_002.0,
                 },
-                radius: 1.0,
+                radius: 100_000.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.7,
+                        y: 0.7,
+                        z: 0.7,
+                    },
+                    unused_buffer: Default::default(),
+                },
             },
             Sphere {
                 position: Vec3 {
-                    x: 12.0,
-                    y: -4.0,
+                    x: 10.0,
+                    y: 100_004.0,
                     z: 0.0,
                 },
-                radius: 1.0,
+                radius: 100_000.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.7,
+                        y: 0.7,
+                        z: 1.0,
+                    },
+                    unused_buffer: Default::default(),
+                },
             },
             Sphere {
                 position: Vec3 {
-                    x: 15.0 + 5.0 * x,
-                    y: -1.0 + 5.0 * y,
-                    z: 6.0,
+                    x: 10.0,
+                    y: -100_004.0,
+                    z: 0.0,
                 },
-                radius: 1.0,
+                radius: 100_000.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 1.0,
+                        y: 0.7,
+                        z: 0.7,
+                    },
+                    unused_buffer: Default::default(),
+                },
+            },
+            Sphere {
+                position: Vec3 {
+                    x: 100_014.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                radius: 100_000.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.7,
+                        y: 0.7,
+                        z: 0.7,
+                    },
+                    unused_buffer: Default::default(),
+                },
+            },
+            Sphere {
+                position: Vec3 {
+                    x: 10.0,
+                    y: 0.0,
+                    z: -100_004.0,
+                },
+                radius: 100_000.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.2,
+                        y: 0.2,
+                        z: 0.2,
+                    },
+                    unused_buffer: Default::default(),
+                },
             },
         ];
+
+        scene_info.sphere_count = spheres.len() as u32;
+        scene_info.camera.position.x = 2.0;
 
         self.raytracing_resources.prepare(
             device,
@@ -485,7 +558,7 @@ impl Resources {
             encoder,
             (texture_width, texture_height),
             scene_info,
-            spheres,
+            &spheres,
         );
     }
 
@@ -502,7 +575,7 @@ impl RaytracingRenderResources {
         encoder: &mut wgpu::CommandEncoder,
         texture_size: (u32, u32),
         scene_info: SceneInfo,
-        spheres: [Sphere; 4],
+        spheres: &[Sphere],
     ) {
         let mut raytracing_pass = encoder.begin_compute_pass(&Default::default());
         queue.write_buffer(
@@ -510,7 +583,7 @@ impl RaytracingRenderResources {
             0,
             bytemuck::cast_slice(&[scene_info]),
         );
-        queue.write_buffer(&self.sphere_buffer, 0, bytemuck::cast_slice(&[spheres]));
+        queue.write_buffer(&self.sphere_buffer, 0, bytemuck::cast_slice(spheres));
         raytracing_pass.set_pipeline(&self.pipeline);
         raytracing_pass.set_bind_group(0, &self.bind_group, &[]);
         raytracing_pass.dispatch_workgroups(texture_size.0, texture_size.1, 1);

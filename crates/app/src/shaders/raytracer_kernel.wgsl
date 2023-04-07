@@ -1,6 +1,11 @@
+struct Material {
+    albedo: vec3<f32>,
+}
+
 struct Sphere {
     center: vec3<f32>,
     radius: f32,
+    material: Material,
 }
 
 struct Ray {
@@ -15,6 +20,7 @@ struct Camera {
 struct SceneInfo {
     camera: Camera,
     time: f32,
+    sphere_count: u32,
 }
 
 struct HitResult {
@@ -34,12 +40,12 @@ var<storage, read_write> spheres: array<Sphere>;
 @compute @workgroup_size(1,1,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
-    let light_pos = vec3<f32>(4.0, 3.0, 0.0) + 2.0 * sin(scene_info.time);
+    let light_pos = vec3<f32>(10.0, 1.3, -2.0);
     let screen_size: vec2<i32> = textureDimensions(color_buffer);
     let screen_pos : vec2<i32> = vec2<i32>(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
 
-    let horizontal_coefficient: f32 = (f32(screen_pos.x) - f32(screen_size.x) / 2.0) / f32(screen_size.x) * (sin(scene_info.time * 0.3 + 0.3) * 0.5 + 0.5);
-    let vertical_coefficient: f32 = (f32(screen_pos.y) - f32(screen_size.y) / 2.0) / f32(screen_size.x) * (sin(scene_info.time * 0.3 + 0.3) * 0.5 + 0.5);
+    let horizontal_coefficient: f32 = (f32(screen_pos.x) - f32(screen_size.x) / 2.0) / f32(screen_size.x); 
+    let vertical_coefficient: f32 = (f32(screen_pos.y) - f32(screen_size.y) / 2.0) / f32(screen_size.x);
     let forwards = vec3<f32>(1.0, 0.0, 0.0);
     let right = vec3<f32>(0.0, -1.0, 0.0);
     let up = vec3<f32>(0.0, 0.0, 1.0);
@@ -58,12 +64,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
         
         var new_ray: Ray;
         new_ray.origin = hit_pos;
-        new_ray.direction = normalize(light_pos - hit_pos);
+        let hit_to_light_vec = light_pos - hit_pos;
+        new_ray.direction = normalize(hit_to_light_vec);
         let new_hit_result = hit_any(new_ray);
 
-        if (new_hit_result.t < 0.0) {
+        if (new_hit_result.t < 0.0 || new_hit_result.t * new_hit_result.t > dot(hit_to_light_vec, hit_to_light_vec)) {
+            let albedo = spheres[hit_result.sphere_index].material.albedo;
             let light_intensity = dot(normal, new_ray.direction);
-            pixel_color = vec3<f32>(1.0, 0.0, 0.0) * light_intensity;
+            pixel_color = albedo * light_intensity;
         }
         else {
             pixel_color = vec3<f32>(0.0, 0.0, 0.0);
@@ -76,7 +84,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 fn hit_any(ray: Ray) -> HitResult {
     var min_t: f32 = -1.0;
     var sphere_hit: u32;
-    for (var i: u32 = 0u; i < 4u; i++) {
+    for (var i: u32 = 0u; i < scene_info.sphere_count; i++) {
         let sphere = spheres[i];
         let t: f32 = hit(ray, sphere);
         if (t >= 0.0) {
