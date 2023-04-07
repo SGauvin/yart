@@ -41,31 +41,32 @@ var<uniform> scene_info: SceneInfo;
 @group(0) @binding(2)
 var<storage, read_write> spheres: array<Sphere>;
 
+var<private> seed: vec2<f32>;
+
 @compute @workgroup_size(1,1,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     let screen_size: vec2<i32> = textureDimensions(color_buffer);
     let screen_pos : vec2<i32> = vec2<i32>(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
 
-    var seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
+    seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
     var average_color = vec3<f32>(0.0, 0.0, 0.0);
     let sample_count = 50;
     for (var i = 0; i < sample_count; i++) {
-        let pixel_color = sample(screen_pos, screen_size, seed);
+        let pixel_color = sample(screen_pos, screen_size);
         average_color += pixel_color / f32(sample_count);
-        seed += 0.17;
     }
     textureStore(color_buffer, screen_pos, vec4<f32>(average_color, 1.0));
 }
 
-fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>, seed: vec2<f32>) -> vec3<f32> {
+fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
     /* let light_pos = vec3<f32>(10.0, 1.3, -2.0); */
     let forwards = vec3<f32>(1.0, 0.0, 0.0);
     let right = vec3<f32>(0.0, -1.0, 0.0);
     let up = vec3<f32>(0.0, 0.0, 1.0);
 
-    let rand_x = random(seed + 0.1);
-    let rand_y = random(seed + 0.2);
+    let rand_x = random();
+    let rand_y = random();
 
     let horizontal_coefficient: f32 = (f32(screen_pos.x) + rand_x - f32(screen_size.x) / 2.0) / f32(screen_size.x); 
     let vertical_coefficient: f32 = (f32(screen_pos.y) + rand_y - f32(screen_size.y) / 2.0) / f32(screen_size.x);
@@ -78,14 +79,12 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>, seed: vec2<f32>) -> vec
     var ray: Ray;
     ray.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
     ray.origin = scene_info.camera.position;
-    var seed_offset = seed + 0.17;
 
     for (var i = 0; i < max_bounces; i++) {
-        seed_offset += 0.17;
         var hit_result = hit_any(ray);
         if (hit_result.t > 0.0001) {
             ray.origin = hit_result.point;
-            let ray_target = ray.origin + hit_result.normal + random_on_unit_sphere(seed_offset);
+            let ray_target = ray.origin + hit_result.normal + random_on_unit_sphere();
             ray.direction = normalize(ray_target - ray.origin);
             let albedo = spheres[hit_result.sphere_index].material.albedo;
             pixel_color *= 0.5 * albedo;
@@ -136,19 +135,16 @@ fn hit(ray: Ray, sphere: Sphere) -> f32 {
     }
 }
 
-fn random(co: vec2<f32>) -> f32 {
-    return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453);
+fn random() -> f32 {
+    seed += 0.1;
+    return fract(sin(dot(seed.xy, vec2(12.9898,78.233))) * 43758.5453);
 }
 
-fn random_in_unit_sphere(co: vec2<f32>) -> vec3<f32> {
-    var seed = co;
+fn random_in_unit_sphere() -> vec3<f32> {
     while (true) {
-        seed += 0.13;
-        let x = (random(seed) * 2.0) - 1.0;
-        seed += 0.17;
-        let y = (random(seed) * 2.0) - 1.0;
-        seed += 0.12;
-        let z = (random(seed) * 2.0) - 1.0;
+        let x = (random() * 2.0) - 1.0;
+        let y = (random() * 2.0) - 1.0;
+        let z = (random() * 2.0) - 1.0;
         let value = vec3<f32>(x, y, z);
         if (dot(value, value) > 1.0) {
             continue;
@@ -158,7 +154,7 @@ fn random_in_unit_sphere(co: vec2<f32>) -> vec3<f32> {
     return vec3<f32>(0.0, 0.0, 0.0);
 }
 
-fn random_on_unit_sphere(co: vec2<f32>) -> vec3<f32> {
-    return normalize(random_in_unit_sphere(co));
+fn random_on_unit_sphere() -> vec3<f32> {
+    return normalize(random_in_unit_sphere());
 }
 
