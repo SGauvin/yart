@@ -70,31 +70,47 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>, seed: vec2<f32>) -> vec
     let horizontal_coefficient: f32 = (f32(screen_pos.x) + rand_x - f32(screen_size.x) / 2.0) / f32(screen_size.x); 
     let vertical_coefficient: f32 = (f32(screen_pos.y) + rand_y - f32(screen_size.y) / 2.0) / f32(screen_size.x);
 
+
+    var pixel_color = vec3<f32>(3.0, 3.0, 3.0);
+
+    let max_bounces = 50;
+
     var ray: Ray;
     ray.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
     ray.origin = scene_info.camera.position;
 
-    var pixel_color = vec3<f32>(0.2, 0.8, 0.98);
+    for (var i = 0; i < 3; i++) {
+        var hit_result = hit_any(ray);
+        if (hit_result.t > 0.0001) {
+            // Pixel hit an object
+            let hit_pos = hit_result.point;
+            let normal = hit_result.normal;
 
-    let hit_result = hit_any(ray);
+            var new_ray: Ray;
+            new_ray.origin = hit_pos;
+            let hit_to_light_vec = light_pos - hit_pos;
+            new_ray.direction = normalize(hit_to_light_vec);
+            let new_hit_result = hit_any(new_ray);
 
-    if (hit_result.t > 0.0) {
-        let hit_pos = ray.origin + ray.direction * hit_result.t;
-        let normal = normalize(hit_pos - spheres[hit_result.sphere_index].center);
-        
-        var new_ray: Ray;
-        new_ray.origin = hit_pos;
-        let hit_to_light_vec = light_pos - hit_pos;
-        new_ray.direction = normalize(hit_to_light_vec);
-        let new_hit_result = hit_any(new_ray);
-
-        if (new_hit_result.t < 0.0 || new_hit_result.t * new_hit_result.t > dot(hit_to_light_vec, hit_to_light_vec)) {
-            let albedo = spheres[hit_result.sphere_index].material.albedo;
-            let light_intensity = dot(normal, new_ray.direction);
-            pixel_color = albedo * light_intensity;
+            if (new_hit_result.t < 0.0 || new_hit_result.t * new_hit_result.t > dot(hit_to_light_vec, hit_to_light_vec)) {
+                // Not in shadow
+                let albedo = spheres[hit_result.sphere_index].material.albedo;
+                let light_intensity = dot(normal, new_ray.direction);
+                pixel_color *= albedo * light_intensity;
+                let ray_target = hit_pos + normal + vec3<f32>(random(seed + 0.11), random(seed + 0.12), random(seed + 0.13));
+                ray.origin = hit_pos;
+                ray.direction = normalize(ray_target - ray.origin);
+            }
+            else {
+                // Shadow
+                pixel_color *= 0.0;
+                break;
+            }
         }
         else {
-            pixel_color = vec3<f32>(0.0, 0.0, 0.0);
+            // Skybox
+            pixel_color *= vec3<f32>(0.2, 0.4, 0.95);
+            break;
         }
     }
     return pixel_color;
