@@ -5,6 +5,7 @@ use std::sync::Arc;
 use egui_wgpu::{self, wgpu};
 
 use bytemuck::{Pod, Zeroable};
+use rand::Rng;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -26,7 +27,8 @@ pub struct Vec3 {
 #[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
 pub struct Material {
     pub albedo: Vec3,
-    unused_buffer: [u32; 1],
+    pub is_mirror: u32,
+    pub unused_buffer: [u32; 0],
 }
 
 #[repr(C)]
@@ -50,7 +52,8 @@ pub struct SceneInfo {
     pub camera: Camera,
     pub time: f32,
     pub sphere_count: u32,
-    unused_buffer: [u32; 2],
+    pub random_seed: f32,
+    unused_buffer: [u32; 1],
 }
 
 pub struct Custom3d {
@@ -58,6 +61,7 @@ pub struct Custom3d {
     texture_width: u32,
     texture_height: u32,
     device: Arc<wgpu::Device>,
+    random_gen: rand::rngs::ThreadRng,
     scene_info: SceneInfo,
 }
 
@@ -98,6 +102,7 @@ impl Custom3d {
             texture_height,
             device: device.clone(),
             scene_info: Default::default(),
+            random_gen: rand::thread_rng(),
         })
     }
 
@@ -387,6 +392,7 @@ impl Custom3d {
 
         let (rect, _response) = ui.allocate_exact_size(size_to_allocate, egui::Sense::drag());
 
+        self.scene_info.random_seed = self.random_gen.gen();
         self.scene_info.time = self.scene_start.elapsed().as_secs_f32();
 
         let cb = egui_wgpu::CallbackFn::new()
@@ -464,6 +470,7 @@ impl Resources {
                         y: 0.7,
                         z: 0.7,
                     },
+                    is_mirror: 1,
                     unused_buffer: Default::default(),
                 },
             },
@@ -480,6 +487,7 @@ impl Resources {
                         y: 0.7,
                         z: 0.7,
                     },
+                    is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },
@@ -496,6 +504,7 @@ impl Resources {
                         y: 0.7,
                         z: 1.0,
                     },
+                    is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },
@@ -512,6 +521,7 @@ impl Resources {
                         y: 0.7,
                         z: 0.7,
                     },
+                    is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },
@@ -528,6 +538,7 @@ impl Resources {
                         y: 0.7,
                         z: 0.7,
                     },
+                    is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },
@@ -544,6 +555,7 @@ impl Resources {
                         y: 0.2,
                         z: 0.2,
                     },
+                    is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },

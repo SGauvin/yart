@@ -187,6 +187,7 @@ dependencies = [
  "egui-wgpu",
  "egui_dock",
  "egui_extras",
+ "rand",
  "re_log",
  "renderer",
  "serde",

@@ -1,5 +1,6 @@
 struct Material {
     albedo: vec3<f32>,
+    is_mirror: u32,
 }
 
 struct Sphere {
@@ -21,10 +22,13 @@ struct SceneInfo {
     camera: Camera,
     time: f32,
     sphere_count: u32,
+    random_seed: f32,
 }
 
 struct HitResult {
     t: f32,
+    point: vec3<f32>,
+    normal: vec3<f32>,
     sphere_index: u32,
 }
 
@@ -40,15 +44,31 @@ var<storage, read_write> spheres: array<Sphere>;
 @compute @workgroup_size(1,1,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
-    let light_pos = vec3<f32>(10.0, 1.3, -2.0);
     let screen_size: vec2<i32> = textureDimensions(color_buffer);
     let screen_pos : vec2<i32> = vec2<i32>(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
 
-    let horizontal_coefficient: f32 = (f32(screen_pos.x) - f32(screen_size.x) / 2.0) / f32(screen_size.x); 
-    let vertical_coefficient: f32 = (f32(screen_pos.y) - f32(screen_size.y) / 2.0) / f32(screen_size.x);
+    var seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
+    var average_color = vec3<f32>(0.0, 0.0, 0.0);
+    let sample_count = 10;
+    for (var i = 0; i < sample_count; i++) {
+        let pixel_color = sample(screen_pos, screen_size, seed);
+        average_color += pixel_color / f32(sample_count);
+        seed += 0.17;
+    }
+    textureStore(color_buffer, screen_pos, vec4<f32>(average_color, 1.0));
+}
+
+fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>, seed: vec2<f32>) -> vec3<f32> {
+    let light_pos = vec3<f32>(10.0, 1.3, -2.0);
     let forwards = vec3<f32>(1.0, 0.0, 0.0);
     let right = vec3<f32>(0.0, -1.0, 0.0);
     let up = vec3<f32>(0.0, 0.0, 1.0);
+
+    let rand_x = random(seed + 0.1);
+    let rand_y = random(seed + 0.2);
+
+    let horizontal_coefficient: f32 = (f32(screen_pos.x) + rand_x - f32(screen_size.x) / 2.0) / f32(screen_size.x); 
+    let vertical_coefficient: f32 = (f32(screen_pos.y) + rand_y - f32(screen_size.y) / 2.0) / f32(screen_size.x);
 
     var ray: Ray;
     ray.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
@@ -77,8 +97,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
             pixel_color = vec3<f32>(0.0, 0.0, 0.0);
         }
     }
-
-    textureStore(color_buffer, screen_pos, vec4<f32>(pixel_color, 1.0));
+    return pixel_color;
 }
 
 fn hit_any(ray: Ray) -> HitResult {
@@ -97,6 +116,9 @@ fn hit_any(ray: Ray) -> HitResult {
     var result: HitResult;
     result.t = min_t;
     result.sphere_index = sphere_hit;
+    result.point = ray.origin + ray.direction * min_t;
+    result.normal = normalize(result.point - spheres[sphere_hit].center);
+
     return result;
 }
 
@@ -111,4 +133,8 @@ fn hit(ray: Ray, sphere: Sphere) -> f32 {
     } else {
         return (-half_b - sqrt(discriminant) ) / a;
     }
+}
+
+fn random(co: vec2<f32>) -> f32 {
+    return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453);
 }
