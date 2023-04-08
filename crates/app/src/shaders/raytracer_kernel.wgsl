@@ -74,7 +74,7 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
 
     var pixel_color = vec3<f32>(1.0, 1.0, 1.0);
 
-    let max_bounces = 50;
+    let max_bounces = 150;
 
     var ray: Ray;
     ray.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
@@ -97,11 +97,29 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
 }
 
 fn scatter(ray: ptr<function, Ray>, color: ptr<function, vec3<f32>>, hit_result: HitResult) {
-    (*ray).origin = hit_result.point;
-    let ray_target = (*ray).origin + hit_result.normal + random_on_unit_sphere();
-    (*ray).direction = normalize(ray_target - (*ray).origin);
-    let albedo = spheres[hit_result.sphere_index].material.albedo;
-    *color *= 0.5 * albedo;
+    if (spheres[hit_result.sphere_index].material.is_mirror == u32(1)) {
+        (*ray).origin = hit_result.point;
+        (*ray).direction = reflect((*ray).direction, hit_result.normal);
+        let albedo = spheres[hit_result.sphere_index].material.albedo;
+        *color *= albedo;
+    }
+    else {
+        (*ray).origin = hit_result.point;
+        let ray_target = (*ray).origin + hit_result.normal + random_on_unit_sphere();
+        let direction = ray_target - (*ray).origin;
+        if (near_zero(direction)) {
+            (*ray).direction = hit_result.normal;
+        }
+        else {
+            (*ray).direction = normalize(direction);
+        }
+        let albedo = spheres[hit_result.sphere_index].material.albedo;
+        *color *= albedo;
+    }
+}
+
+fn reflect(direction: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    return direction - 2.0 * dot(direction, normal) * normal;
 }
 
 fn hit_any(ray: Ray) -> HitResult {

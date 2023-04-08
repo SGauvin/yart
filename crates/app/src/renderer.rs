@@ -483,11 +483,28 @@ impl Resources {
                 radius: 1.0,
                 mat: Material {
                     albedo: Vec3 {
-                        x: 0.7,
-                        y: 0.7,
-                        z: 0.7,
+                        x: 0.87,
+                        y: 0.87,
+                        z: 0.87,
                     },
                     is_mirror: 1,
+                    unused_buffer: Default::default(),
+                },
+            },
+            Sphere {
+                position: Vec3 {
+                    x: 9.0,
+                    y: 2.2,
+                    z: 0.98,
+                },
+                radius: 1.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.97,
+                        y: 0.97,
+                        z: 0.97,
+                    },
+                    is_mirror: 0,
                     unused_buffer: Default::default(),
                 },
             },
