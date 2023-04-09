@@ -41,6 +41,12 @@ var<uniform> scene_info: SceneInfo;
 @group(0) @binding(2)
 var<storage, read_write> spheres: array<Sphere>;
 
+@group(0) @binding(3)
+var average_colors : texture_2d<f32>;
+
+@group(0) @binding(0)
+var screen_sampler : sampler;
+
 var<private> seed: vec2<f32>;
 
 @compute @workgroup_size(1,1,1)

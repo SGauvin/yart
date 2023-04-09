@@ -57,7 +57,7 @@ pub struct SceneInfo {
     pub time: f32,
     pub sphere_count: u32,
     pub random_seed: f32,
-    unused_buffer: [u32; 1],
+    pub frame_count: u32,
 }
 
 pub struct Custom3d {
@@ -71,8 +71,6 @@ pub struct Custom3d {
 }
 
 impl Custom3d {
-    pub fn beep(&mut self) {}
-
     pub fn new<'a>(cc: &'a eframe::CreationContext<'a>) -> Option<Self> {
         // Get the WGPU render state from the eframe creation context. This can also be retrieved
         // from `eframe::Frame` when you don't have a `CreationContext` available.
@@ -87,7 +85,7 @@ impl Custom3d {
         let triangle_resources = Self::create_screen_pipeline(
             device,
             &raytracing_resources.sampler,
-            &raytracing_resources.color_buffer_view,
+            &raytracing_resources.storage_texture_view,
         );
         let (tx, rx) = unbounded();
         let resources = Resources {
@@ -127,7 +125,7 @@ impl Custom3d {
         let triangle_resources = Self::create_screen_pipeline(
             &self.device,
             &raytracing_resources.sampler,
-            &raytracing_resources.color_buffer_view,
+            &raytracing_resources.storage_texture_view,
         );
 
         let old_resources = render_state
@@ -173,10 +171,17 @@ impl Custom3d {
             mapped_at_creation: false,
         });
 
-        let texture_descriptor =
-            Self::get_texture_descriptor_from_size(texture_width, texture_height);
-        let color_buffer = device.create_texture(&texture_descriptor);
-        let color_buffer_view = color_buffer.create_view(&wgpu::TextureViewDescriptor::default());
+        let storage_texture_descriptor =
+            Self::get_storage_texture_descriptor_from_size(texture_width, texture_height);
+        let storage_texture = device.create_texture(&storage_texture_descriptor);
+        let storage_texture_view =
+            storage_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let progressive_texture_descriptor =
+            Self::get_progressive_texture_descriptor_from_size(texture_width, texture_height);
+        let progressive_texture = device.create_texture(&progressive_texture_descriptor);
+        let progressive_texture_view =
+            progressive_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mipmap_filter: wgpu::FilterMode::Nearest,
@@ -218,6 +223,22 @@ impl Custom3d {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
             label: None,
         });
@@ -228,7 +249,7 @@ impl Custom3d {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&color_buffer_view),
+                    resource: wgpu::BindingResource::TextureView(&storage_texture_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -237,6 +258,14 @@ impl Custom3d {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: sphere_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&progressive_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         });
@@ -264,7 +293,10 @@ impl Custom3d {
             bind_group,
             pipeline,
             sampler,
-            color_buffer_view,
+            storage_texture_view,
+            storage_texture,
+            progressive_texture_view,
+            progressive_texture,
             scene_info_buffer,
             sphere_buffer,
         }
@@ -357,7 +389,29 @@ impl Custom3d {
         }
     }
 
-    fn get_texture_descriptor_from_size<'a>(
+    fn get_progressive_texture_descriptor_from_size<'a>(
+        width: u32,
+        height: u32,
+    ) -> wgpu::TextureDescriptor<'a> {
+        wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            label: None,
+            view_formats: &[],
+        }
+    }
+
+    fn get_storage_texture_descriptor_from_size<'a>(
         width: u32,
         height: u32,
     ) -> wgpu::TextureDescriptor<'a> {
@@ -373,8 +427,8 @@ impl Custom3d {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             label: None,
             view_formats: &[],
         }
@@ -457,7 +511,10 @@ struct RaytracingRenderResources {
     pipeline: wgpu::ComputePipeline,
     sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
-    color_buffer_view: wgpu::TextureView,
+    storage_texture_view: wgpu::TextureView,
+    storage_texture: wgpu::Texture,
+    progressive_texture_view: wgpu::TextureView,
+    progressive_texture: wgpu::Texture,
     scene_info_buffer: wgpu::Buffer,
     sphere_buffer: wgpu::Buffer,
 }
@@ -645,16 +702,43 @@ impl RaytracingRenderResources {
         scene_info: SceneInfo,
         spheres: &[Sphere],
     ) {
-        let mut raytracing_pass = encoder.begin_compute_pass(&Default::default());
-        queue.write_buffer(
-            &self.scene_info_buffer,
-            0,
-            bytemuck::cast_slice(&[scene_info]),
-        );
-        queue.write_buffer(&self.sphere_buffer, 0, bytemuck::cast_slice(spheres));
-        raytracing_pass.set_pipeline(&self.pipeline);
-        raytracing_pass.set_bind_group(0, &self.bind_group, &[]);
-        raytracing_pass.dispatch_workgroups(texture_size.0, texture_size.1, 1);
+        {
+            let mut raytracing_pass = encoder.begin_compute_pass(&Default::default());
+            queue.write_buffer(
+                &self.scene_info_buffer,
+                0,
+                bytemuck::cast_slice(&[scene_info]),
+            );
+            queue.write_buffer(&self.sphere_buffer, 0, bytemuck::cast_slice(spheres));
+            raytracing_pass.set_pipeline(&self.pipeline);
+            raytracing_pass.set_bind_group(0, &self.bind_group, &[]);
+            raytracing_pass.dispatch_workgroups(texture_size.0, texture_size.1, 1);
+        }
+        {
+            let source = wgpu::ImageCopyTexture {
+                texture: &self.storage_texture,
+                aspect: wgpu::TextureAspect::All,
+                mip_level: 0,
+                origin: Default::default(),
+            };
+
+            let destination = wgpu::ImageCopyTexture {
+                texture: &self.progressive_texture,
+                aspect: wgpu::TextureAspect::All,
+                mip_level: 0,
+                origin: Default::default(),
+            };
+
+            encoder.copy_texture_to_texture(
+                source,
+                destination,
+                wgpu::Extent3d {
+                    width: texture_size.0,
+                    height: texture_size.1,
+                    depth_or_array_layers: 1,
+                },
+            )
+        }
     }
 }
 
