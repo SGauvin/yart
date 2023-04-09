@@ -23,6 +23,7 @@ struct SceneInfo {
     time: f32,
     sphere_count: u32,
     random_seed: f32,
+    frame_count: u32,
 }
 
 struct HitResult {
@@ -44,7 +45,7 @@ var<storage, read_write> spheres: array<Sphere>;
 @group(0) @binding(3)
 var average_colors : texture_2d<f32>;
 
-@group(0) @binding(0)
+@group(0) @binding(4)
 var screen_sampler : sampler;
 
 var<private> seed: vec2<f32>;
@@ -62,7 +63,13 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
         let pixel_color = sample(screen_pos, screen_size);
         average_color += pixel_color / f32(sample_count);
     }
-    textureStore(color_buffer, screen_pos, vec4<f32>(average_color, 1.0));
+
+    let pos = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y));
+    let progressive_color: vec3<f32> = textureSampleLevel(average_colors, screen_sampler, pos, 0.0).rgb
+        * f32(scene_info.frame_count - u32(1));
+    let final_color = (progressive_color + average_color) / f32(scene_info.frame_count);
+
+    textureStore(color_buffer, screen_pos, vec4<f32>(final_color, 1.0));
 }
 
 fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
@@ -74,7 +81,7 @@ fn sample(screen_pos: vec2<i32>, screen_size: vec2<i32>) -> vec3<f32> {
     let rand_x = random();
     let rand_y = random();
 
-    let horizontal_coefficient: f32 = (f32(screen_pos.x) + rand_x - f32(screen_size.x) / 2.0) / f32(screen_size.x); 
+    let horizontal_coefficient: f32 = (f32(screen_pos.x) + rand_x - f32(screen_size.x) / 2.0) / f32(screen_size.x);
     let vertical_coefficient: f32 = (f32(screen_pos.y) + rand_y - f32(screen_size.y) / 2.0) / f32(screen_size.x);
 
 
@@ -190,4 +197,3 @@ fn random_in_unit_sphere() -> vec3<f32> {
 fn random_on_unit_sphere() -> vec3<f32> {
     return normalize(random_in_unit_sphere());
 }
-

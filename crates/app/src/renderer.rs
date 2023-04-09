@@ -227,7 +227,7 @@ impl Custom3d {
                     binding: 3,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -235,7 +235,7 @@ impl Custom3d {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
@@ -469,6 +469,7 @@ impl Custom3d {
 
         self.scene_info.random_seed = self.random_gen.gen();
         self.scene_info.time = self.scene_start.elapsed().as_secs_f32();
+        self.scene_info.frame_count += 1;
 
         let cb = egui_wgpu::CallbackFn::new()
             .prepare({
