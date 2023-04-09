@@ -1,3 +1,5 @@
+use crossbeam::channel::unbounded;
+use crossbeam::channel::{Receiver, Sender};
 use std::borrow::Cow;
 use std::num::NonZeroU8;
 use std::sync::Arc;
@@ -7,6 +9,8 @@ use egui_wgpu::{self, wgpu};
 use bytemuck::{Pod, Zeroable};
 use rand::Rng;
 use wgpu::util::DeviceExt;
+
+enum Message {}
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, Pod, Zeroable)]
@@ -63,9 +67,12 @@ pub struct Custom3d {
     device: Arc<wgpu::Device>,
     random_gen: rand::rngs::ThreadRng,
     scene_info: SceneInfo,
+    tx: Sender<Message>,
 }
 
 impl Custom3d {
+    pub fn beep(&mut self) {}
+
     pub fn new<'a>(cc: &'a eframe::CreationContext<'a>) -> Option<Self> {
         // Get the WGPU render state from the eframe creation context. This can also be retrieved
         // from `eframe::Frame` when you don't have a `CreationContext` available.
@@ -82,9 +89,11 @@ impl Custom3d {
             &raytracing_resources.sampler,
             &raytracing_resources.color_buffer_view,
         );
+        let (tx, rx) = unbounded();
         let resources = Resources {
             raytracing_resources,
-            triangle_resources,
+            screen_resources: triangle_resources,
+            rx,
         };
 
         // Because the graphics pipeline must have the same lifetime as the egui render pass,
@@ -103,10 +112,16 @@ impl Custom3d {
             device: device.clone(),
             scene_info: Default::default(),
             random_gen: rand::thread_rng(),
+            tx,
         })
     }
 
-    pub fn resize(&mut self, width: u32, height: u32, render_state: &egui_wgpu::RenderState) {
+    pub fn rebuild_pipeline(
+        &mut self,
+        width: u32,
+        height: u32,
+        render_state: &egui_wgpu::RenderState,
+    ) {
         let raytracing_resources = Self::create_raytracing_pipeline(&self.device, width, height);
 
         let triangle_resources = Self::create_screen_pipeline(
@@ -115,16 +130,20 @@ impl Custom3d {
             &raytracing_resources.color_buffer_view,
         );
 
-        let resources = Resources {
-            raytracing_resources,
-            triangle_resources,
-        };
-
-        render_state
+        let old_resources = render_state
             .renderer
             .write()
             .paint_callback_resources
-            .remove::<Resources>();
+            .remove::<Resources>()
+            .unwrap();
+
+        let Resources { rx, .. } = old_resources;
+
+        let resources = Resources {
+            raytracing_resources,
+            screen_resources: triangle_resources,
+            rx,
+        };
 
         render_state
             .renderer
@@ -383,7 +402,7 @@ impl Custom3d {
         if size_to_allocate.x as u32 != self.texture_width
             || size_to_allocate.y as u32 != self.texture_height
         {
-            self.resize(
+            self.rebuild_pipeline(
                 size_to_allocate.x as u32,
                 size_to_allocate.y as u32,
                 frame.wgpu_render_state().unwrap(),
@@ -410,7 +429,7 @@ impl Custom3d {
                         texture_height,
                         scene_info,
                     );
-                    Vec::new()
+                    Vec::with_capacity(0)
                 }
             })
             .paint(move |_info, render_pass, paint_callback_resources| {
@@ -443,7 +462,8 @@ struct RaytracingRenderResources {
 
 struct Resources {
     raytracing_resources: RaytracingRenderResources,
-    triangle_resources: ScreenRenderResources,
+    screen_resources: ScreenRenderResources,
+    rx: Receiver<Message>,
 }
 
 impl Resources {
@@ -609,7 +629,7 @@ impl Resources {
     }
 
     fn paint<'rp>(&'rp self, render_pass: &mut wgpu::RenderPass<'rp>) {
-        self.triangle_resources.paint(render_pass);
+        self.screen_resources.paint(render_pass);
     }
 }
 
