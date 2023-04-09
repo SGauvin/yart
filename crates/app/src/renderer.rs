@@ -181,6 +181,8 @@ impl Custom3d {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mipmap_filter: wgpu::FilterMode::Nearest,
             anisotropy_clamp: NonZeroU8::new(1),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
