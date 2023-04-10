@@ -84,7 +84,6 @@ impl Custom3d {
             Self::create_raytracing_pipeline(device, texture_width, texture_height);
         let triangle_resources = Self::create_screen_pipeline(
             device,
-            &raytracing_resources.sampler,
             &raytracing_resources.storage_texture_view,
         );
         let (tx, rx) = unbounded();
@@ -124,7 +123,6 @@ impl Custom3d {
 
         let triangle_resources = Self::create_screen_pipeline(
             &self.device,
-            &raytracing_resources.sampler,
             &raytracing_resources.storage_texture_view,
         );
 
@@ -186,8 +184,8 @@ impl Custom3d {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mipmap_filter: wgpu::FilterMode::Nearest,
             anisotropy_clamp: NonZeroU8::new(1),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -227,7 +225,7 @@ impl Custom3d {
                     binding: 3,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -236,7 +234,7 @@ impl Custom3d {
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
                     visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                     count: None,
                 },
             ],
@@ -292,7 +290,6 @@ impl Custom3d {
         RaytracingRenderResources {
             bind_group,
             pipeline,
-            sampler,
             storage_texture_view,
             storage_texture,
             progressive_texture_view,
@@ -304,7 +301,6 @@ impl Custom3d {
 
     fn create_screen_pipeline(
         device: &wgpu::Device,
-        sampler: &wgpu::Sampler,
         color_buffer_view: &wgpu::TextureView,
     ) -> ScreenRenderResources {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -313,14 +309,14 @@ impl Custom3d {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -329,13 +325,21 @@ impl Custom3d {
             ],
         });
 
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            anisotropy_clamp: NonZeroU8::new(1),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Sampler(sampler),
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -463,6 +467,7 @@ impl Custom3d {
                 size_to_allocate.y as u32,
                 frame.wgpu_render_state().unwrap(),
             );
+            self.scene_info.frame_count = 0;
         }
 
         let (rect, _response) = ui.allocate_exact_size(size_to_allocate, egui::Sense::drag());
@@ -510,7 +515,6 @@ struct ScreenRenderResources {
 
 struct RaytracingRenderResources {
     pipeline: wgpu::ComputePipeline,
-    sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
     storage_texture_view: wgpu::TextureView,
     storage_texture: wgpu::Texture,
@@ -575,7 +579,7 @@ impl Resources {
                 position: Vec3 {
                     x: 9.0,
                     y: 2.2,
-                    z: 0.98,
+                    z: 1.1,
                 },
                 radius: 1.0,
                 mat: Material {

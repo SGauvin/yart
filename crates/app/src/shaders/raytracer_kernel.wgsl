@@ -58,7 +58,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
 
     var average_color = vec3<f32>(0.0, 0.0, 0.0);
-    let sample_count = 50;
+    let sample_count = 100;
     for (var i = 0; i < sample_count; i++) {
         let pixel_color = sample(screen_pos, screen_size);
         average_color += pixel_color / f32(sample_count);
@@ -66,8 +66,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     let pos = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y));
     let progressive_color: vec3<f32> = textureSampleLevel(average_colors, screen_sampler, pos, 0.0).rgb
-        * f32(scene_info.frame_count - u32(1));
-    let final_color = (progressive_color + average_color) / f32(scene_info.frame_count);
+        * (f32(scene_info.frame_count - u32(1)) / f32(scene_info.frame_count));
+    let final_color = progressive_color + average_color / f32(scene_info.frame_count);
 
     textureStore(color_buffer, screen_pos, vec4<f32>(final_color, 1.0));
 }
