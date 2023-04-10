@@ -1,7 +1,7 @@
 use crossbeam::channel::unbounded;
 use crossbeam::channel::{Receiver, Sender};
 use std::borrow::Cow;
-use std::num::NonZeroU8;
+use std::num::{NonZeroU32, NonZeroU8};
 use std::sync::Arc;
 
 use egui_wgpu::{self, wgpu};
@@ -82,10 +82,8 @@ impl Custom3d {
 
         let raytracing_resources =
             Self::create_raytracing_pipeline(device, texture_width, texture_height);
-        let triangle_resources = Self::create_screen_pipeline(
-            device,
-            &raytracing_resources.storage_texture_view,
-        );
+        let triangle_resources =
+            Self::create_screen_pipeline(device, &raytracing_resources.storage_texture_view);
         let (tx, rx) = unbounded();
         let resources = Resources {
             raytracing_resources,
@@ -121,10 +119,8 @@ impl Custom3d {
     ) {
         let raytracing_resources = Self::create_raytracing_pipeline(&self.device, width, height);
 
-        let triangle_resources = Self::create_screen_pipeline(
-            &self.device,
-            &raytracing_resources.storage_texture_view,
-        );
+        let triangle_resources =
+            Self::create_screen_pipeline(&self.device, &raytracing_resources.storage_texture_view);
 
         let old_resources = render_state
             .renderer
@@ -175,18 +171,11 @@ impl Custom3d {
         let storage_texture_view =
             storage_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let progressive_texture_descriptor =
-            Self::get_progressive_texture_descriptor_from_size(texture_width, texture_height);
-        let progressive_texture = device.create_texture(&progressive_texture_descriptor);
-        let progressive_texture_view =
-            progressive_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            anisotropy_clamp: NonZeroU8::new(1),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
+        let progressive_rendering_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (get_bytes_per_row_from_width(texture_width) * texture_height) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -224,17 +213,11 @@ impl Custom3d {
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false }, // True?
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                     count: None,
                 },
             ],
@@ -259,11 +242,7 @@ impl Custom3d {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&progressive_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: progressive_rendering_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -292,8 +271,7 @@ impl Custom3d {
             pipeline,
             storage_texture_view,
             storage_texture,
-            progressive_texture_view,
-            progressive_texture,
+            progressive_rendering_buffer,
             scene_info_buffer,
             sphere_buffer,
         }
@@ -309,14 +287,14 @@ impl Custom3d {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -326,10 +304,10 @@ impl Custom3d {
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Linear,
             anisotropy_clamp: NonZeroU8::new(1),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
@@ -390,28 +368,6 @@ impl Custom3d {
         ScreenRenderResources {
             pipeline,
             bind_group,
-        }
-    }
-
-    fn get_progressive_texture_descriptor_from_size<'a>(
-        width: u32,
-        height: u32,
-    ) -> wgpu::TextureDescriptor<'a> {
-        wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
-            label: None,
-            view_formats: &[],
         }
     }
 
@@ -518,8 +474,7 @@ struct RaytracingRenderResources {
     bind_group: wgpu::BindGroup,
     storage_texture_view: wgpu::TextureView,
     storage_texture: wgpu::Texture,
-    progressive_texture_view: wgpu::TextureView,
-    progressive_texture: wgpu::Texture,
+    progressive_rendering_buffer: wgpu::Buffer,
     scene_info_buffer: wgpu::Buffer,
     sphere_buffer: wgpu::Buffer,
 }
@@ -727,14 +682,16 @@ impl RaytracingRenderResources {
                 origin: Default::default(),
             };
 
-            let destination = wgpu::ImageCopyTexture {
-                texture: &self.progressive_texture,
-                aspect: wgpu::TextureAspect::All,
-                mip_level: 0,
-                origin: Default::default(),
+            let destination = wgpu::ImageCopyBuffer {
+                buffer: &self.progressive_rendering_buffer,
+                layout: wgpu::ImageDataLayout {
+                    bytes_per_row: NonZeroU32::new(get_bytes_per_row_from_width(texture_size.0)),
+                    offset: 0,
+                    rows_per_image: None,
+                },
             };
 
-            encoder.copy_texture_to_texture(
+            encoder.copy_texture_to_buffer(
                 source,
                 destination,
                 wgpu::Extent3d {
@@ -742,7 +699,7 @@ impl RaytracingRenderResources {
                     height: texture_size.1,
                     depth_or_array_layers: 1,
                 },
-            )
+            );
         }
     }
 }
@@ -753,4 +710,11 @@ impl ScreenRenderResources {
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.draw(0..6, 0..1);
     }
+}
+
+fn get_bytes_per_row_from_width(width: u32) -> u32 {
+    let unpadded_bytes_per_row = 4 * width; // Rgba8Unorm
+    unpadded_bytes_per_row
+        + (wgpu::COPY_BYTES_PER_ROW_ALIGNMENT
+            - (unpadded_bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT))
 }

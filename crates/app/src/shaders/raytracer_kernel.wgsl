@@ -43,10 +43,7 @@ var<uniform> scene_info: SceneInfo;
 var<storage, read_write> spheres: array<Sphere>;
 
 @group(0) @binding(3)
-var average_colors : texture_2d<f32>;
-
-@group(0) @binding(4)
-var screen_sampler : sampler;
+var<storage, read_write> progressive_buffer: array<u32>;
 
 var<private> seed: vec2<f32>;
 
@@ -58,15 +55,24 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
 
     var average_color = vec3<f32>(0.0, 0.0, 0.0);
-    let sample_count = 100;
+    let sample_count = 5;
     for (var i = 0; i < sample_count; i++) {
         let pixel_color = sample(screen_pos, screen_size);
         average_color += pixel_color / f32(sample_count);
     }
 
-    let pos = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y));
-    let progressive_color: vec3<f32> = textureSampleLevel(average_colors, screen_sampler, pos, 0.0).rgb
+    let unpadded_bytes_per_row = 4 * screen_size.x;
+    let padded_bytes_per_row = unpadded_bytes_per_row + (256 - (unpadded_bytes_per_row % 256));
+    let padded_values_per_row = padded_bytes_per_row / 4;
+    let index = screen_pos.x + screen_pos.y * padded_values_per_row;
+    let value: u32 = progressive_buffer[index];
+    let progressive_color = unpack4x8unorm(value).rgb
         * (f32(scene_info.frame_count - u32(1)) / f32(scene_info.frame_count));
+
+    /* let old_r = extract_bits() */
+    /* let pos = vec2<f32>(f32(screen_pos.x) / f32(textureDimensions(average_colors).x), f32(screen_pos.y) / f32(textureDimensions(average_colors).y)); */
+    /* let progressive_color: vec3<f32> = textureSampleLevel(average_colors, screen_sampler, pos, 0.0).rgb */
+    /*     * (f32(scene_info.frame_count - u32(1)) / f32(scene_info.frame_count)); */
     let final_color = progressive_color + average_color / f32(scene_info.frame_count);
 
     textureStore(color_buffer, screen_pos, vec4<f32>(final_color, 1.0));
@@ -129,10 +135,6 @@ fn scatter(ray: ptr<function, Ray>, color: ptr<function, vec3<f32>>, hit_result:
         let albedo = spheres[hit_result.sphere_index].material.albedo;
         *color *= albedo;
     }
-}
-
-fn reflect(direction: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-    return direction - 2.0 * dot(direction, normal) * normal;
 }
 
 fn hit_any(ray: Ray) -> HitResult {
