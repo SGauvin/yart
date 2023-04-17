@@ -34,7 +34,7 @@ struct HitResult {
 }
 
 @group(0) @binding(0)
-var color_buffer: texture_storage_2d<rgba8unorm, write>;
+var color_buffer: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(1)
 var<uniform> scene_info: SceneInfo;
@@ -55,26 +55,22 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     seed = vec2<f32>(f32(screen_pos.x) / f32(screen_size.x), f32(screen_pos.y) / f32(screen_size.y)) + scene_info.random_seed;
 
     var average_color = vec3<f32>(0.0, 0.0, 0.0);
-    let sample_count = 5;
+    let sample_count = 8;
     for (var i = 0; i < sample_count; i++) {
         let pixel_color = sample(screen_pos, screen_size);
         average_color += pixel_color / f32(sample_count);
     }
 
-    let unpadded_bytes_per_row = 4 * screen_size.x;
+    let unpadded_bytes_per_row = 8 * screen_size.x;
     let padded_bytes_per_row = unpadded_bytes_per_row + (256 - (unpadded_bytes_per_row % 256));
     let padded_values_per_row = padded_bytes_per_row / 4;
-    let index = screen_pos.x + screen_pos.y * padded_values_per_row;
-    let value: u32 = progressive_buffer[index];
-    let progressive_color = unpack4x8unorm(value).rgb
+    let index = screen_pos.x * 2 + screen_pos.y * padded_values_per_row;
+    let rg = unpack2x16float(progressive_buffer[index]);
+    let ba = unpack2x16float(progressive_buffer[index + 1]);
+    let progressive_color = vec3<f32>(rg.x, rg.y, ba.x)
         * (f32(scene_info.frame_count - u32(1)) / f32(scene_info.frame_count));
 
-    /* let old_r = extract_bits() */
-    /* let pos = vec2<f32>(f32(screen_pos.x) / f32(textureDimensions(average_colors).x), f32(screen_pos.y) / f32(textureDimensions(average_colors).y)); */
-    /* let progressive_color: vec3<f32> = textureSampleLevel(average_colors, screen_sampler, pos, 0.0).rgb */
-    /*     * (f32(scene_info.frame_count - u32(1)) / f32(scene_info.frame_count)); */
     let final_color = progressive_color + average_color / f32(scene_info.frame_count);
-
     textureStore(color_buffer, screen_pos, vec4<f32>(final_color, 1.0));
 }
 

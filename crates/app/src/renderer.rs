@@ -185,7 +185,7 @@ impl Custom3d {
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format: wgpu::TextureFormat::Rgba16Float,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -304,10 +304,10 @@ impl Custom3d {
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
             anisotropy_clamp: NonZeroU8::new(1),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -351,7 +351,7 @@ impl Custom3d {
                 module: &shader_module,
                 entry_point: "frag_main",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    format: wgpu::TextureFormat::Bgra8Unorm, // ??
                     blend: None,
                     write_mask: wgpu::ColorWrites::default(),
                 })],
@@ -384,7 +384,7 @@ impl Custom3d {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
@@ -496,23 +496,6 @@ impl Resources {
         mut scene_info: SceneInfo,
     ) {
         let spheres = [
-            // Sphere {
-            //     position: Vec3 {
-            //         x: 10.0,
-            //         y: 1.0,
-            //         z: 1.0,
-            //     },
-            //     radius: 1.0,
-            //     mat: Material {
-            //         albedo: Vec3 {
-            //             x: 0.7,
-            //             y: 0.7,
-            //             z: 0.7,
-            //         },
-            //         is_mirror: 1,
-            //         unused_buffer: Default::default(),
-            //     },
-            // },
             Sphere {
                 position: Vec3 {
                     x: 10.0,
@@ -532,9 +515,26 @@ impl Resources {
             },
             Sphere {
                 position: Vec3 {
+                    x: 7.3,
+                    y: -1.2,
+                    z: 1.02,
+                },
+                radius: 1.0,
+                mat: Material {
+                    albedo: Vec3 {
+                        x: 0.87,
+                        y: 0.87,
+                        z: 0.87,
+                    },
+                    is_mirror: 1,
+                    unused_buffer: Default::default(),
+                },
+            },
+            Sphere {
+                position: Vec3 {
                     x: 9.0,
                     y: 2.2,
-                    z: 1.1,
+                    z: 1.03,
                 },
                 radius: 1.0,
                 mat: Material {
@@ -713,7 +713,7 @@ impl ScreenRenderResources {
 }
 
 fn get_bytes_per_row_from_width(width: u32) -> u32 {
-    let unpadded_bytes_per_row = 4 * width; // Rgba8Unorm
+    let unpadded_bytes_per_row = 8 * width; // Rgba16Float
     unpadded_bytes_per_row
         + (wgpu::COPY_BYTES_PER_ROW_ALIGNMENT
             - (unpadded_bytes_per_row % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT))
