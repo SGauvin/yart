@@ -52,14 +52,13 @@ impl eframe::App for ExampleApp {
                             ui.strong("Left bar");
                         });
 
-                        if ui.button("Log info").clicked() {
-                            re_log::info!("A lot of text on info level.\nA lot of text in fact. So much that we should ideally be auto-wrapping it at some point, much earlier than this.");
-                        }
-                        if ui.button("Log warn").clicked() {
-                            re_log::warn!("A lot of text on warn level.\nA lot of text in fact. So much that we should ideally be auto-wrapping it at some point, much earlier than this.");
-                        }
-                        if ui.button("Log error").clicked() {
-                            re_log::error!("A lot of text on error level.\nA lot of text in fact. So much that we should ideally be auto-wrapping it at some point, much earlier than this.");
+                        if ui.button("Save Image").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("image", &["png"])
+                                .save_file()
+                            {
+                                pollster::block_on(self.custom.save(path));
+                            }
                         }
                     });
             });

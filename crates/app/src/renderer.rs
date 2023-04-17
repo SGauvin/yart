@@ -1,7 +1,10 @@
 use crossbeam::channel::unbounded;
 use crossbeam::channel::{Receiver, Sender};
 use std::borrow::Cow;
+use std::fs::File;
+use std::io::Write;
 use std::num::{NonZeroU32, NonZeroU8};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui_wgpu::{self, wgpu};
@@ -65,9 +68,11 @@ pub struct Custom3d {
     texture_width: u32,
     texture_height: u32,
     device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
     random_gen: rand::rngs::ThreadRng,
     scene_info: SceneInfo,
     tx: Sender<Message>,
+    renderer: Arc<egui::mutex::RwLock<egui_wgpu::Renderer>>,
 }
 
 impl Custom3d {
@@ -76,6 +81,7 @@ impl Custom3d {
         // from `eframe::Frame` when you don't have a `CreationContext` available.
         let render_state = cc.wgpu_render_state.as_ref()?;
         let device = &render_state.device;
+        let queue = render_state.queue.clone();
 
         let texture_width = 800;
         let texture_height = 800;
@@ -105,9 +111,11 @@ impl Custom3d {
             texture_width,
             texture_height,
             device: device.clone(),
+            queue,
             scene_info: Default::default(),
             random_gen: rand::thread_rng(),
             tx,
+            renderer: render_state.renderer.clone(),
         })
     }
 
@@ -173,8 +181,15 @@ impl Custom3d {
 
         let progressive_rendering_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: (get_bytes_per_row_from_width(texture_width) * texture_height) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            size: (get_padded_bytes_per_row_from_width(texture_width) * texture_height) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        let export_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (get_padded_bytes_per_row_from_width(texture_width) * texture_height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
 
@@ -272,6 +287,7 @@ impl Custom3d {
             storage_texture_view,
             storage_texture,
             progressive_rendering_buffer,
+            export_buffer,
             scene_info_buffer,
             sphere_buffer,
         }
@@ -462,6 +478,80 @@ impl Custom3d {
 
         ui.painter().add(callback);
     }
+
+    pub async fn save(&self, save_path: PathBuf) {
+        let renderer = self.renderer.read();
+        let resources = renderer
+            .paint_callback_resources
+            .get::<Resources>()
+            .unwrap();
+
+        let padded_bytes_per_row = get_padded_bytes_per_row_from_width(self.texture_width) as usize;
+        let unpadded_bytes_per_row: usize = 8 * self.texture_width as usize; // Rgba16Float
+
+        let command_buffer = {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    ..Default::default()
+                });
+
+            encoder.copy_buffer_to_buffer(
+                &resources.raytracing_resources.progressive_rendering_buffer,
+                0,
+                &resources.raytracing_resources.export_buffer,
+                0,
+                padded_bytes_per_row as u64 * (self.texture_height as u64),
+            );
+
+            encoder.finish()
+        };
+
+        let submission_index = self.queue.submit(Some(command_buffer));
+
+        let buffer_slice = resources
+            .raytracing_resources
+            .export_buffer
+            .slice(..);
+
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+
+        self.device.poll(wgpu::Maintain::WaitForSubmissionIndex(submission_index));
+
+        if let Some(Ok(())) = receiver.receive().await {
+            let mut png_encoder = png::Encoder::new(
+                File::create(save_path).unwrap(),
+                self.texture_width,
+                self.texture_height,
+            );
+            png_encoder.set_depth(png::BitDepth::Eight);
+            png_encoder.set_color(png::ColorType::Rgba);
+
+            let mut png_writer = png_encoder
+                .write_header()
+                .unwrap()
+                .into_stream_writer_with_size(unpadded_bytes_per_row)
+                .unwrap();
+
+            let padded_buffer = buffer_slice.get_mapped_range();
+            for chunk in padded_buffer.chunks(padded_bytes_per_row) {
+                let unpadded_data = &chunk[0..unpadded_bytes_per_row];
+                let data: &[half::f16] = bytemuck::cast_slice(unpadded_data);
+                for value in data {
+                    let byte_value: u8 = (f32::from(*value).clamp(0.0, 1.0) * 255.0).round() as u8;
+                    png_writer.write_all(&[byte_value]).unwrap();
+                }
+            }
+
+            png_writer.finish().unwrap();
+            drop(padded_buffer);
+            resources
+                .raytracing_resources
+                .export_buffer
+                .unmap();
+        }
+    }
 }
 
 struct ScreenRenderResources {
@@ -475,6 +565,7 @@ struct RaytracingRenderResources {
     storage_texture_view: wgpu::TextureView,
     storage_texture: wgpu::Texture,
     progressive_rendering_buffer: wgpu::Buffer,
+    export_buffer: wgpu::Buffer,
     scene_info_buffer: wgpu::Buffer,
     sphere_buffer: wgpu::Buffer,
 }
@@ -564,74 +655,6 @@ impl Resources {
                     unused_buffer: Default::default(),
                 },
             },
-            // Sphere {
-            //     position: Vec3 {
-            //         x: 10.0,
-            //         y: 100_004.0,
-            //         z: 0.0,
-            //     },
-            //     radius: 100_000.0,
-            //     mat: Material {
-            //         albedo: Vec3 {
-            //             x: 0.7,
-            //             y: 0.7,
-            //             z: 1.0,
-            //         },
-            //         is_mirror: 0,
-            //         unused_buffer: Default::default(),
-            //     },
-            // },
-            // Sphere {
-            //     position: Vec3 {
-            //         x: 10.0,
-            //         y: -100_004.0,
-            //         z: 0.0,
-            //     },
-            //     radius: 100_000.0,
-            //     mat: Material {
-            //         albedo: Vec3 {
-            //             x: 1.0,
-            //             y: 0.7,
-            //             z: 0.7,
-            //         },
-            //         is_mirror: 0,
-            //         unused_buffer: Default::default(),
-            //     },
-            // },
-            // Sphere {
-            //     position: Vec3 {
-            //         x: 100_014.0,
-            //         y: 0.0,
-            //         z: 0.0,
-            //     },
-            //     radius: 100_000.0,
-            //     mat: Material {
-            //         albedo: Vec3 {
-            //             x: 0.7,
-            //             y: 0.7,
-            //             z: 0.7,
-            //         },
-            //         is_mirror: 0,
-            //         unused_buffer: Default::default(),
-            //     },
-            // },
-            // Sphere {
-            //     position: Vec3 {
-            //         x: 10.0,
-            //         y: 0.0,
-            //         z: -100_004.0,
-            //     },
-            //     radius: 100_000.0,
-            //     mat: Material {
-            //         albedo: Vec3 {
-            //             x: 0.2,
-            //             y: 0.2,
-            //             z: 0.2,
-            //         },
-            //         is_mirror: 0,
-            //         unused_buffer: Default::default(),
-            //     },
-            // },
         ];
 
         scene_info.sphere_count = spheres.len() as u32;
@@ -685,7 +708,9 @@ impl RaytracingRenderResources {
             let destination = wgpu::ImageCopyBuffer {
                 buffer: &self.progressive_rendering_buffer,
                 layout: wgpu::ImageDataLayout {
-                    bytes_per_row: NonZeroU32::new(get_bytes_per_row_from_width(texture_size.0)),
+                    bytes_per_row: NonZeroU32::new(get_padded_bytes_per_row_from_width(
+                        texture_size.0,
+                    )),
                     offset: 0,
                     rows_per_image: None,
                 },
@@ -712,7 +737,7 @@ impl ScreenRenderResources {
     }
 }
 
-fn get_bytes_per_row_from_width(width: u32) -> u32 {
+fn get_padded_bytes_per_row_from_width(width: u32) -> u32 {
     let unpadded_bytes_per_row = 8 * width; // Rgba16Float
     unpadded_bytes_per_row
         + (wgpu::COPY_BYTES_PER_ROW_ALIGNMENT
