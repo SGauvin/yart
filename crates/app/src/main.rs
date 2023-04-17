@@ -15,9 +15,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "App",
         native_options,
-        Box::new(move |cc| {
-            Box::new(app::ExampleApp::new(cc))
-        }),
+        Box::new(move |cc| Box::new(app::ExampleApp::new(cc))),
     )
 }
 
@@ -36,9 +34,7 @@ fn main() {
         eframe::start_web(
             "the_canvas_id", // hardcode it
             web_options,
-            Box::new(move |cc| {
-                Box::new(app::ExampleApp::new(cc))
-            }),
+            Box::new(move |cc| Box::new(app::ExampleApp::new(cc))),
         )
         .await
         .expect("failed to start eframe");

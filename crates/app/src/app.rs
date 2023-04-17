@@ -26,15 +26,12 @@ impl eframe::App for ExampleApp {
 
         self.top_bar(egui_ctx, frame);
 
-        egui::TopBottomPanel::bottom("bottom_panel").show(
-            egui_ctx,
-            |ui| {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    egui::warn_if_debug_build(ui);
-                    ui.strong("Bottom panel");
-                })
-            },
-        );
+        egui::TopBottomPanel::bottom("bottom_panel").show(egui_ctx, |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                egui::warn_if_debug_build(ui);
+                ui.strong("Bottom panel");
+            })
+        });
 
         egui::SidePanel::left("left_panel")
             .default_width(500.0)
@@ -147,4 +144,3 @@ fn selection_buttons(ui: &mut egui::Ui) {
             });
     });
 }
-
